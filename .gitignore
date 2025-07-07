@@ -1,0 +1,64 @@
+# Git Ignore File for AI Resume Tailor Project
+
+# Python
+*.pyc
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+env/
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.python-version
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Streamlit
+.streamlit/
+*.log
+
+# OS & Temp Files
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
+*.bak
+
+# Secrets & Configs
+.env
+*.env
+secrets.toml
+credentials.json
+app_config.json
+
+# Uploaded User Files (if cached)
+uploads/
+processed/
+temp/
