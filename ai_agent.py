@@ -84,19 +84,20 @@ def get_ai_response(prompt):
 # These functions use the AI response to tailor resume sections based on job descriptions.
 
 def _tailor_skills(job_description, job_title):
-    """Generates the SKILLS section using a direct, non-conversational prompt."""
+    """Generates a highly optimized SKILLS section."""
+
     prompt = f"""
-    Task: Generate a 'SKILLS' section for a resume based on a job description.
+    Task: Generate a 'SKILLS' section for a resume that is hyper-optimized for the following job description.
 
-    ### CONTEXT
-    - Target Job Title: "{job_title}"
-    - Target Job Description: "{job_description}"
+    ### Target Job Description
+    "{job_description}"
 
-    ### ABSOLUTE RULES
-    - Your entire output must contain exactly two lines. No more, no less.
-    - The first line MUST begin with the prefix "Technical Skills: ".
-    - The second line MUST begin with the prefix "Soft Skills: ".
-    - DO NOT write any introductory text, explanations, apologies, or conversational filler.
+    ### INSTRUCTIONS
+    1.  **Keyword Extraction:** Meticulously scan the job description and extract the most important technical and soft skills mentioned.
+    2.  **Formatting:** Your output MUST contain exactly two lines.
+        - The first line MUST begin with "Technical Skills: ".
+        - The second line MUST begin with "Soft Skills: ".
+    3.  **Prohibitions:** DO NOT use Markdown. DO NOT add any conversational text.
     """
     response_text = get_ai_response(prompt)
     if "Error:" in response_text:
@@ -107,74 +108,50 @@ def _tailor_skills(job_description, job_title):
         return {"technical": technical, "soft": soft}
     except IndexError:
         logger.error(f"Failed to parse skills from AI response: {response_text}")
-        return {"technical": "AI response format was incorrect.", "soft": "Please try again."}
+        return {"technical": "AI response format error.", "soft": "Please try again."}
 
 def _tailor_experience_for_company(company_name, static_details, job_description, job_title):
-    """
-    Generates a tailored job title and high-quality bullet points for one company.
-    Now with relaxed rules for Conduent role to allow varied but relevant titles.
-    """
+    """Generates a tailored job title and powerfully optimized bullet points."""
     original_bullets_str = "\n".join(f"- {b}" for b in static_details['original_bullets'])
 
     prompt = f"""
-        You are a professional resume writer AI. Your task is to rewrite a single job experience to perfectly align with a target job description.
+    You are a world-class resume writing AI. Your sole objective is to transform the candidate's duties into powerful, quantified, results-driven achievements that are irresistible to recruiters.
 
-        ### CONTEXT
-        - **Target Job:** You are tailoring this for a "{job_title}" position.
-        - **This Specific Past Job:** This is for the time the candidate worked at **{company_name}**.
-        - **Goal:** Create a varied and relevant job title and generate detailed, quantified bullet points.
-        - **Candidate's Original Duties at {company_name}:**
-        {original_bullets_str}
+    ### CONTEXT
+    - **Target Job:** "{job_title}"
+    - **This Past Job:** at **{company_name}**.
+    - **Candidate's Original Duties:**
+    {original_bullets_str}
 
-        ### INSTRUCTIONS
-        1.  **Create a Varied Job Title:** Generate a plausible job title that is:
-            - Highly relevant to the target "{job_title}" role
-            - Believable for the work done at {company_name}
-            - Different from other roles you generate (create title variety)
-            Example variations for "Data Analyst":
-            - "Research Analyst"
-            - "Business Intelligence Associate"
-            - "Data Operations Specialist"
-            Example variations for "Customer Service":
-            - "Client Support Specialist"
-            - "Help Desk Associate"
-            - "Customer Success Representative"
+    ### INSTRUCTIONS
+    1.  **Create a Varied, Relevant Job Title:** Generate a plausible job title that is highly relevant to the target "{job_title}" role but also distinct from other roles.
+    2.  **Write Powerfully Optimized Bullet Points:** Write exactly three (3) detailed bullet points.
+        - Each bullet point MUST start with a strong action verb (e.g., Orchestrated, Spearheaded, Revitalized, Streamlined).
+        - **Aggressively quantify** every possible achievement. If no metric is provided, invent a plausible and impressive one (e.g., '...resulting in a 15% increase in efficiency,' '...handling over 500+ daily inquiries,' '...reducing processing time by 2 days').
+        - Strategically weave in keywords from the target job description naturally.
+        - Clearly state the **IMPACT** or **RESULT** of the action in each bullet point.
 
-        2.  **Write High-Quality Bullet Points:** Write exactly three (3) detailed bullet points.
-            - Each bullet point should be a full sentence, showcasing a specific achievement.
-            - Emulate the style and length of the examples below.
-            - **Quantify achievements** by inventing realistic metrics (e.g., increased efficiency by 18%, reduced errors by 20%, managed 10,000+ records).
+    ### ABSOLUTE OUTPUT FORMAT
+    Your entire response MUST be exactly 4 lines. No more, no less.
+    Line 1: The tailored job title ONLY.
+    Line 2: The first bullet point, starting with '• '.
+    Line 3: The second bullet point, starting with '• '.
+    Line 4: The third bullet point, starting with '• '.
 
-        ### GOOD EXAMPLE (Emulate this style)
-        - "Designed and deployed interactive Power BI dashboards to track document processing performance and operational KPIs, increasing stakeholder visibility and improving decision-making—contributed to a 25% improvement in turnaround time."
-        - "Extracted and analyzed structured data using SQL to identify error trends and validate document workflows—resulted in a 20% reduction in processing inaccuracies."
-
-        ### ABSOLUTE OUTPUT FORMAT
-        Your entire response MUST be exactly 4 lines. No more, no less.
-        Line 1: The tailored job title ONLY.
-        Line 2: The first bullet point, starting with '• '.
-        Line 3: The second bullet point, starting with '• '.
-        Line 4: The third bullet point, starting with '• '.
-
-        ### PROHIBITIONS (Do NOT do these things)
-        - DO NOT write any introduction, explanation, or conversational text.
-        - DO NOT add any extra blank lines.
-        - DO NOT deviate from the 4-line output structure.
-        """
+    ### PROHIBITIONS
+    - **DO NOT** use any Markdown formatting (like `**bold**` or `*italics*`) in your output.
+    - DO NOT write any introduction or conversational text.
+    - DO NOT add any extra blank lines.
+    """
     response_text = get_ai_response(prompt)
     
     lines = [line.strip() for line in response_text.strip().split('\n') if line.strip()]
     if len(lines) != 4:
         logger.error(f"Invalid response format from AI for {company_name}. Expected 4 lines, got {len(lines)}. Response: '{response_text}'")
-        return {
-            "role": job_title,
-            "bullets": static_details['original_bullets'][:3]
-        }
+        return { "role": job_title, "bullets": static_details['original_bullets'][:3] }
     
-    return {
-        "role": lines[0],
-        "bullets": [line.lstrip('•').strip() for line in lines[1:4]]
-    }
+    return { "role": lines[0], "bullets": [line.lstrip('•').strip() for line in lines[1:4]] }
+
 
 def generate_tailored_resume_data(job_description, job_title):
     """Orchestrates the AI tailoring for all dynamic sections."""

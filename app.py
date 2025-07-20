@@ -5,6 +5,8 @@ import re
 from dotenv import load_dotenv
 import logging
 
+load_dotenv()
+
 from ai_agent import generate_tailored_resume_data, generate_cheatsheet, generate_cover_letter
 from utils import create_final_docx
 from config import MASTER_RESUME_DATA
@@ -12,7 +14,6 @@ from config import MASTER_RESUME_DATA
 # --- Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-load_dotenv()
 
 # --- Page Config ---
 st.set_page_config(layout="wide", page_title="AI Resume Tailor")
