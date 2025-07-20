@@ -1,174 +1,184 @@
 # app.py
-
 import streamlit as st
 import os
-from dotenv import load_dotenv
-from io import BytesIO
 import re
+from dotenv import load_dotenv
 import logging
-from streamlit_quill import st_quill
 
-# Configure logging
+from ai_agent import generate_tailored_resume_data, generate_cheatsheet, generate_cover_letter
+from utils import create_final_docx
+from config import MASTER_RESUME_DATA
+
+# --- Setup ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
-
-# Import local modules
-from utils import extract_text_from_docx, extract_text_from_pdf, calculate_ats_score, create_styled_docx, create_cheatsheet_docx
-from ai_agent import tailor_resume, generate_interview_cheatsheet
-
-# --- API Key Configuration ---
 load_dotenv()
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    st.error("Gemini API Key not found.")
-    st.stop()
 
-# --- Page Configuration ---
+# --- Page Config ---
 st.set_page_config(layout="wide", page_title="AI Resume Tailor")
 st.title("📄 AI-Powered Resume Tailor")
-st.markdown("Effortlessly adapt your resume to a job description. Upload, paste, and get a tailored resume in moments!")
-
-# --- Sidebar ---
-with st.sidebar:
-    st.header("How It Works:")
-    st.markdown("""
-    1.  **Upload CV** (.docx or .pdf)
-    2.  **Paste Job Description**
-    3.  **Click 'Tailor My Resume!'**
-    4.  **Review & Edit:** If you make changes, a 'Re-tailor' button will appear.
-    5.  **Download** your tailored resume and generate a cheatsheet to help you prepare!
-    """)
-    st.info("For best results, ensure your CV has clear section headings.")
 
 # --- Helper Functions ---
-def markdown_to_html(text):
-    text = text.replace('\n', '<br>')
-    text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', text)
-    text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', text)
-    text = re.sub(r'([^<br>]+?): (.*?)(<br>|$)', r'<strong>\1:</strong> \2<br>', text)
-    return text
+def assemble_content_string(tailored_data):
+    """Assembles a simple string representation for the cheatsheet prompt."""
+    content_parts = []
+    contact = MASTER_RESUME_DATA['CONTACT_INFO']
+    content_parts.append(f"{contact['name']}\n{contact['details']}")
+    content_parts.append("\nEDUCATION")
+    for edu in MASTER_RESUME_DATA['EDUCATION']:
+        content_parts.append(f"{edu['institution']}\n{edu['degree']}\n{edu['courses']}")
+    content_parts.append("\nRELEVANT EXPERIENCE")
+    static_exp = MASTER_RESUME_DATA['RELEVANT_EXPERIENCE_STATIC']
+    for company in static_exp:
+        role = tailored_data['experience'][company]['role']
+        bullets = "\n".join([f"• {b}" for b in tailored_data['experience'][company]['bullets']])
+        content_parts.append(f"\n{company}\n{role}\n{bullets}")
+    content_parts.append(f"\nAWARD: {MASTER_RESUME_DATA['AWARD']}")
+    skills = tailored_data['skills']
+    content_parts.append(f"\nSKILLS:\nTechnical Skills: {skills['technical']}\nSoft Skills: {skills['soft']}")
+    
+    # --- Organizations ---
+    org_data = MASTER_RESUME_DATA['ORGANIZATIONS']
+    content_parts.append(f"\nORGANIZATIONS\n{org_data['role']}\t{org_data['dates']}")
+    
+    return "\n".join(content_parts)
 
-def html_to_markdown(html):
-    if not html: return ""
-    html = re.sub(r'<p><br></p>', '\n', html)
-    html = html.replace('<p>', '').replace('</p>', '\n')
-    html = html.replace('<br>', '\n')
-    html = re.sub(r'<strong>(.*?)</strong>', r'**\1**', html)
-    html = re.sub(r'<em>(.*?)</em>', r'*\1*', html)
-    html = re.sub(r'<[^>]+>', '', html)
-    return html.strip()
-
-def extract_job_title(jd_text):
-    for line in jd_text.split('\n'):
-        clean_line = line.strip()
-        if any(keyword in clean_line.lower() for keyword in ['job title', 'position:']):
-            return clean_line.split(':')[-1].strip()
-    for line in jd_text.split('\n'):
-        if line.strip(): return line.strip()
-    return "Job"
+def slugify(text):
+    """Converts a string into a URL-friendly slug for filenames."""
+    text = str(text).strip()
+    text = re.sub(r'[^\w\s-]', '', text)
+    text = re.sub(r'\s+', '_', text)
+    text = re.sub(r'_{2,}', '_', text)
+    return text.strip('_').lower()
 
 # --- Main UI ---
-def initialize_session():
-    # Store uploaded file info to survive a full re-run
-    if 'uploaded_cv' in st.session_state:
-        st.session_state['original_filename'] = st.session_state.uploaded_cv.name
-        with st.spinner("Extracting text..."):
-            file_extension = os.path.splitext(st.session_state.uploaded_cv.name)[1]
-            if file_extension == ".docx":
-                st.session_state['original_cv_content'] = extract_text_from_docx(st.session_state.uploaded_cv)
-            else:
-                st.session_state['original_cv_content'] = extract_text_from_pdf(st.session_state.uploaded_cv)
+st.subheader("1. Provide Job Details")
+job_title = st.text_input("Enter the Job Title (e.g., Data Analyst)")
+company_name = st.text_input("Company Name (optional)", "")
+job_description = st.text_area("Paste the full job description here:", height=250)
 
-col1, col2 = st.columns(2)
-with col1:
-    st.subheader("1. Upload Your Current CV")
-    st.file_uploader("Choose a file", type=["docx", "pdf"], key="uploaded_cv", on_change=initialize_session)
-    if 'original_cv_content' in st.session_state:
-        st.text_area("Preview of Original CV", st.session_state.original_cv_content, height=300, disabled=True)
+# Cover letter toggle
+include_cover_letter = st.toggle("Include Cover Letter", value=False)
 
-with col2:
-    st.subheader("2. Paste the Job Description")
-    st.text_area("Paste the job description here:", height=400, key="job_description_content")
-
-st.markdown("---")
-
-if st.button("🚀 Tailor My Resume!", use_container_width=True, type="primary"):
-    if 'original_cv_content' in st.session_state and 'job_description_content' in st.session_state:
-        st.session_state.tailoring_in_progress = True
-        st.session_state.cv_source_for_tailoring = st.session_state.original_cv_content
+# --- Resume Generation Button ---
+if st.button("🚀 Generate Resume!", use_container_width=True, type="primary", key="generate_resume"):
+    if job_description and job_title:
+        with st.spinner("✨ Tailoring your resume with AI... This may take a moment."):
+            # Clear previous state
+            keys_to_clear = ['tailored_data', 'cover_letter', 'cheatsheet']
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
+            
+            # Store current input
+            st.session_state.job_title = job_title
+            st.session_state.company_name = company_name
+            st.session_state.job_description = job_description
+            
+            # Generate resume data
+            st.session_state.tailored_data = generate_tailored_resume_data(job_description, job_title)
+            
+            # Generate cover letter only if toggle is on
+            if include_cover_letter and company_name:
+                with st.spinner("📝 Crafting your cover letter..."):
+                    st.session_state.cover_letter = generate_cover_letter(
+                        st.session_state.tailored_data,
+                        job_description,
+                        job_title,
+                        company_name
+                    )
     else:
-        st.warning("Please upload your CV and paste the Job Description.")
+        st.warning("Please provide both the Job Title and the Job Description.")
 
-# --- Full Tailoring or Re-tailoring Logic ---
-if st.session_state.get('tailoring_in_progress') or st.session_state.get('retailoring_in_progress'):
-    spinner_text = "✨ Re-tailoring with your edits..." if st.session_state.get('retailoring_in_progress') else "✨ Tailoring your resume..."
-    with st.spinner(spinner_text):
-        source_cv = st.session_state.get('cv_source_for_retailoring', st.session_state.get('original_cv_content'))
-        tailoring_result = tailor_resume(source_cv, st.session_state['job_description_content'], GEMINI_API_KEY)
+# --- If Resume is Generated ---
+if 'tailored_data' in st.session_state:
+    st.subheader("2. Download Your Tailored Resume")
+    try:
+        docx_bytes = create_final_docx(st.session_state.tailored_data)
         
-        st.session_state['tailored_sections_dict'] = tailoring_result["tailored_sections"]
-        st.session_state['display_order'] = tailoring_result["section_order"]
-        display_output_markdown = ""
-        for key in st.session_state['display_order']:
-            content = st.session_state['tailored_sections_dict'].get(key, "")
-            if content and content.strip():
-                if key != "CONTACT_INFO": display_output_markdown += f"## {key.replace('_', ' ').title()}\n\n"
-                display_output_markdown += f"{content}\n\n"
-        
-        st.session_state['final_markdown_output'] = display_output_markdown.strip()
-        st.session_state['ats_score'] = calculate_ats_score(display_output_markdown, st.session_state['job_description_content'])
-        
-        # Reset flags
-        st.session_state.tailoring_in_progress = False
-        st.session_state.retailoring_in_progress = False
-        st.session_state.show_editor = True
-        if 'cheatsheet_content' in st.session_state: del st.session_state['cheatsheet_content'] # Clear old cheatsheet
-        st.rerun()
+        # Create filename
+        base_name = "Aye_Uweja"
+        file_slug = slugify(f"{st.session_state.job_title}_{st.session_state.company_name}" 
+                          if st.session_state.company_name 
+                          else st.session_state.job_title)
 
-# --- Editor and Action Buttons ---
-if st.session_state.get('show_editor'):
-    st.subheader("3. Review, Edit & Download")
-    st.progress(st.session_state.get('ats_score', 0) / 100, text=f"ATS Match Score: {st.session_state.get('ats_score', 0)}%")
-    edited_content_html = st_quill(value=markdown_to_html(st.session_state.get('final_markdown_output', '')), key='editor')
-    final_markdown = html_to_markdown(edited_content_html)
-    
-    st.markdown("---")
-    cols = st.columns(3)
-    # Download Resume Button
-    with cols[0]:
-        try:
-            docx_bytes = create_styled_docx(st.session_state['tailored_sections_dict'], final_markdown, st.session_state['original_cv_content'])
-            st.download_button(label="⬇️ Download Resume", data=docx_bytes, file_name=f"{os.path.splitext(st.session_state.original_filename)[0]}_Tailored.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, type="primary")
-        except Exception as e:
-            st.error(f"Error making DOCX: {e}")
+        col1, col2, col3 = st.columns([1,2,1])
+        with col2:
+            st.download_button(
+                label="⬇️ Download Resume as DOCX",
+                data=docx_bytes,
+                file_name=f"{base_name}_{file_slug}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                use_container_width=True,
+                key="resume_download"
+            )
 
-    # Re-tailor Button (Conditional)
-    with cols[1]:
-        if final_markdown != st.session_state.get('final_markdown_output'):
-            if st.button("🔄 Re-tailor With Your Edits", use_container_width=True):
-                st.session_state.retailoring_in_progress = True
-                st.session_state.cv_source_for_retailoring = final_markdown
+            if st.button("🔄 Generate Another Resume", 
+                        use_container_width=True,
+                        key="reset_button"):
+                keys_to_clear = ['job_title', 'company_name', 'job_description', 
+                                'tailored_data', 'cover_letter', 'cheatsheet']
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
                 st.rerun()
 
-    # Generate Cheatsheet Button
-    with cols[2]:
-        if st.button("💡 Generate Cheatsheet", use_container_width=True):
-            st.session_state['generating_cheatsheet'] = True
-            st.session_state['cheatsheet_source_resume'] = final_markdown
-            st.rerun()
+        # --- Cover Letter Section ---
+        if include_cover_letter:
+            if 'cover_letter' not in st.session_state and company_name:
+                if st.button("📝 Generate Cover Letter",
+                            use_container_width=True,
+                            key="cover_letter_button"):
+                    with st.spinner("Crafting your cover letter..."):
+                        st.session_state.cover_letter = generate_cover_letter(
+                            st.session_state.tailored_data,
+                            st.session_state.job_description,
+                            st.session_state.job_title,
+                            st.session_state.company_name
+                        )
+            
+            if 'cover_letter' in st.session_state:
+                st.markdown("---")
+                st.subheader("Cover Letter")
+                with st.expander("View Your Tailored Cover Letter", expanded=True):
+                    st.write(st.session_state.cover_letter)
+                    st.download_button(
+                        label="⬇️ Download Cover Letter",
+                        data=st.session_state.cover_letter.encode('utf-8'),
+                        file_name=f"Cover_Letter_{file_slug}.txt",
+                        mime="text/plain",
+                        use_container_width=True,
+                        key="cover_download"
+                    )
 
-# --- Cheatsheet Generation & Download Logic ---
-if st.session_state.get('generating_cheatsheet'):
-    with st.spinner("🧠 Generating your personalized interview cheatsheet..."):
-        cheatsheet_content = generate_interview_cheatsheet(st.session_state['cheatsheet_source_resume'], st.session_state['job_description_content'], GEMINI_API_KEY)
-        st.session_state['cheatsheet_docx_bytes'] = create_cheatsheet_docx(cheatsheet_content)
-        del st.session_state['generating_cheatsheet']
-        st.rerun()
+        # --- Cheatsheet Section ---
+        st.markdown("---")
+        st.subheader("3. Interview Preparation")
+        
+        if st.button("🧠 Generate Interview Cheatsheet", 
+                    type="secondary", 
+                    use_container_width=True,
+                    key="cheatsheet_button"):
+            with st.spinner("✨ Creating your personalized cheatsheet..."):
+                resume_content = assemble_content_string(st.session_state.tailored_data)
+                st.session_state.cheatsheet = generate_cheatsheet(
+                    resume_content,
+                    st.session_state.job_description,
+                    st.session_state.job_title
+                )
+        
+        if 'cheatsheet' in st.session_state:
+            with st.expander("Your Interview Cheatsheet", expanded=True):
+                st.markdown(st.session_state.cheatsheet, unsafe_allow_html=True)
+                st.download_button(
+                    label="⬇️ Download Cheatsheet",
+                    data=st.session_state.cheatsheet.encode('utf-8'),
+                    file_name=f"Cheatsheet_{file_slug}.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                    key="cheatsheet_download"
+                )
 
-if 'cheatsheet_docx_bytes' in st.session_state:
-    st.success("✅ Your Interview Cheatsheet is ready!")
-    job_title = extract_job_title(st.session_state['job_description_content'])
-    cheatsheet_filename = f"Cheatsheet_for_{job_title.replace(' ', '_')}.docx"
-    st.download_button(label="⬇️ Download Cheatsheet (.docx)", data=st.session_state['cheatsheet_docx_bytes'], file_name=cheatsheet_filename, mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, type="primary")
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        logger.error(f"Generation Error: {e}", exc_info=True)
