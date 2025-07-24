@@ -1,14 +1,14 @@
 # config.py
 """
-This file contains the master data for the resume.
-All sensitive personal data is now loaded from environment variables.
+Configuration module containing master resume data structure.
+All sensitive personal data is loaded from environment variables.
 """
 
 import os
 
 MASTER_RESUME_DATA = {
     "CONTACT_INFO": {
-        # These will be populated correctly once app.py loads the .env file first.
+        # Contact information loaded from environment variables
         "name": os.getenv("RESUME_NAME"),
         "details": f"{os.getenv('RESUME_CITY')}, {os.getenv('RESUME_STATE')} {os.getenv('RESUME_ZIP')} • {os.getenv('RESUME_PHONE')} • {os.getenv('RESUME_EMAIL')}"
     },

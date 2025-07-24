@@ -1,4 +1,9 @@
 # utils.py
+"""
+Utility functions for document generation and formatting.
+Handles DOCX creation and file operations.
+"""
+
 import re
 from io import BytesIO
 from docx import Document
@@ -9,156 +14,256 @@ from docx.oxml import OxmlElement
 from docx.opc.constants import RELATIONSHIP_TYPE as RT
 from config import MASTER_RESUME_DATA
 
-# Helper function to add hyperlinks to paragraphs
+def slugify(text):
+    """
+    Convert string to URL-friendly slug with title case.
+    
+    Args:
+        text: Input string to convert
+        
+    Returns:
+        str: Formatted slug
+    """
+    if not text:
+        return ""
+    
+    text = str(text).strip()
+    text = ' '.join(word.capitalize() for word in text.split())
+    text = re.sub(r'[^\w\s-]', '', text)
+    return re.sub(r'\s+', '_', text)
+
 def _add_hyperlink(paragraph, text, url):
+    """Add hyperlink to a paragraph while preserving formatting."""
     part = paragraph.part
     r_id = part.relate_to(url, RT.HYPERLINK, is_external=True)
-    hyperlink = OxmlElement('w:hyperlink'); hyperlink.set(qn('r:id'), r_id)
-    new_run = OxmlElement('w:r'); rPr = OxmlElement('w:rPr')
-    rFont = OxmlElement('w:rFonts'); rFont.set(qn('w:ascii'), 'Times New Roman'); rFont.set(qn('w:hAnsi'), 'Times New Roman'); rPr.append(rFont)
-    sz = OxmlElement('w:sz'); sz.set(qn('w:val'), '20'); rPr.append(sz)
-    c = OxmlElement('w:color'); c.set(qn('w:val'), '0563C1'); rPr.append(c)
-    u = OxmlElement('w:u'); u.set(qn('w:val'), 'single'); rPr.append(u)
-    new_run.append(rPr); new_run.text = text; hyperlink.append(new_run)
+    
+    hyperlink = OxmlElement('w:hyperlink')
+    hyperlink.set(qn('r:id'), r_id)
+    
+    new_run = OxmlElement('w:r')
+    rPr = OxmlElement('w:rPr')
+    
+    # Preserve document font styling
+    rFont = OxmlElement('w:rFonts')
+    rFont.set(qn('w:ascii'), 'Times New Roman')
+    rFont.set(qn('w:hAnsi'), 'Times New Roman')
+    rPr.append(rFont)
+    
+    # Set font size and color
+    sz = OxmlElement('w:sz')
+    sz.set(qn('w:val'), '20')
+    rPr.append(sz)
+    
+    color = OxmlElement('w:color')
+    color.set(qn('w:val'), '0563C1')
+    rPr.append(color)
+    
+    # Add underline
+    underline = OxmlElement('w:u')
+    underline.set(qn('w:val'), 'single')
+    rPr.append(underline)
+    
+    new_run.append(rPr)
+    new_run.text = text
+    hyperlink.append(new_run)
     paragraph._p.append(hyperlink)
 
-# Helper function to add section headers with consistent formatting
 def _add_section_header(doc, text):
-    """Helper function to add section headers with consistent formatting"""
-    p = doc.add_paragraph()
-    p.paragraph_format.space_before = Pt(10)
-    run = p.add_run(text)
+    """Add formatted section header to document."""
+    para = doc.add_paragraph()
+    para.paragraph_format.space_before = Pt(10)
+    run = para.add_run(text)
     run.bold = True
     run.underline = True
-    return p
+    return para
 
-# Function to create the final DOCX document
-def create_final_docx(tailored_data):
+def create_final_docx(resume_data):
+    """
+    Generate professional resume DOCX file from structured data.
+    
+    Args:
+        resume_data: Tailored resume content
+        
+    Returns:
+        bytes: DOCX file in memory
+    """
     doc = Document()
+    
+    # Configure base document styles
     style = doc.styles['Normal']
     style.font.name = 'Times New Roman'
     style.font.size = Pt(10)
-    style.paragraph_format.line_spacing = 1.0; style.paragraph_format.space_before = Pt(0); style.paragraph_format.space_after = Pt(0)
+    style.paragraph_format.line_spacing = 1.0
+    style.paragraph_format.space_before = Pt(0)
+    style.paragraph_format.space_after = Pt(0)
+    
+    # Set page margins
     section = doc.sections[0]
-    section.left_margin = Inches(0.75); section.right_margin = Inches(0.75); section.top_margin = Inches(0.5); section.bottom_margin = Inches(0.5)
-    tab_stops = doc.styles['Normal'].paragraph_format.tab_stops
+    section.left_margin = Inches(0.75)
+    section.right_margin = Inches(0.75)
+    section.top_margin = Inches(0.5)
+    section.bottom_margin = Inches(0.5)
+    
+    # Configure right-aligned tab stop
+    tab_stops = style.paragraph_format.tab_stops
     tab_stops.add_tab_stop(Inches(7.0), WD_TAB_ALIGNMENT.RIGHT)
     
-    # --- Contact Info & Main Divider ---
-    contact_info = MASTER_RESUME_DATA['CONTACT_INFO']
-    p_name = doc.add_paragraph(); p_name.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
-    run_name = p_name.add_run(contact_info['name']); run_name.font.size = Pt(14); run_name.bold = True
-    p_details = doc.add_paragraph(); p_details.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER; p_details.paragraph_format.space_after = Pt(4)
-    email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', contact_info['details'])
+    # Add contact information header
+    contact = MASTER_RESUME_DATA['CONTACT_INFO']
+    name_para = doc.add_paragraph()
+    name_para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    name_run = name_para.add_run(contact['name'])
+    name_run.font.size = Pt(14)
+    name_run.bold = True
+    
+    # Add contact details with email hyperlink
+    details_para = doc.add_paragraph()
+    details_para.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
+    details_para.paragraph_format.space_after = Pt(4)
+    
+    email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', contact['details'])
     if email_match:
-        p_details.add_run(contact_info['details'][:email_match.start()])
-        _add_hyperlink(p_details, email_match.group(0), f"mailto:{email_match.group(0)}")
-        p_details.add_run(contact_info['details'][email_match.end():])
-    else: p_details.add_run(contact_info['details'])
-    p_divider = doc.add_paragraph()
-    p_divider_pr = p_divider._p.get_or_add_pPr(); p_bdr = OxmlElement('w:pBdr')
-    bottom = OxmlElement('w:bottom'); bottom.set(qn('w:val'), 'single'); bottom.set(qn('w:sz'), '4'); bottom.set(qn('w:space'), '1'); bottom.set(qn('w:color'), 'auto')
-    p_bdr.append(bottom); p_divider_pr.append(p_bdr)
+        details_para.add_run(contact['details'][:email_match.start()])
+        _add_hyperlink(details_para, email_match.group(0), f"mailto:{email_match.group(0)}")
+        details_para.add_run(contact['details'][email_match.end():])
+    else:
+        details_para.add_run(contact['details'])
     
-    # --- Education ---
+    # Add divider line
+    divider = doc.add_paragraph()
+    divider_pr = divider._p.get_or_add_pPr()
+    border = OxmlElement('w:pBdr')
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'), 'single')
+    bottom.set(qn('w:sz'), '4')
+    bottom.set(qn('w:space'), '1')
+    bottom.set(qn('w:color'), 'auto')
+    border.append(bottom)
+    divider_pr.append(border)
+    
+    # Add education section
     _add_section_header(doc, "EDUCATION")
-    if len(doc.paragraphs) > 0 and not doc.paragraphs[-1].text.strip():
-        doc.paragraphs[-1]._element.getparent().remove(doc.paragraphs[-1]._element)
-    
-    for i, edu in enumerate(MASTER_RESUME_DATA['EDUCATION']):
-        p_inst = doc.add_paragraph()
-        p_inst.add_run(edu['institution']).bold = True
-        p_inst.add_run(f"\t{edu['location']}")
+    for edu in MASTER_RESUME_DATA['EDUCATION']:
+        # Institution and location
+        inst_para = doc.add_paragraph()
+        inst_para.add_run(edu['institution']).bold = True
+        inst_para.add_run(f"\t{edu['location']}")
         
-        p_deg = doc.add_paragraph()
-        run_deg = p_deg.add_run(edu['degree'])
-        run_deg.bold = True
-        run_deg.italic = True
+        # Degree and dates
+        deg_para = doc.add_paragraph()
+        deg_run = deg_para.add_run(edu['degree'])
+        deg_run.bold = True
+        deg_run.italic = True
+        deg_para.add_run(f"\t{edu['dates']}").bold = True
         
-        # Make dates bold
-        dates_run = p_deg.add_run(f"\t{edu['dates']}")
-        dates_run.bold = True
-        
+        # Relevant courses
         doc.add_paragraph(edu['courses']).add_run().italic = True
-        
-        # Add space between education entries except after last one
-        if i < len(MASTER_RESUME_DATA['EDUCATION']) - 1:
-            p = doc.add_paragraph(' ', style='Normal')
-            p.paragraph_format.space_after = Pt(2)
     
-    # --- Relevant Experience ---
+    # Add experience section
     _add_section_header(doc, "RELEVANT EXPERIENCE")
+    for company, static_info in MASTER_RESUME_DATA["RELEVANT_EXPERIENCE_STATIC"].items():
+        if company in resume_data.get('experience', {}):
+            # Company header
+            comp_para = doc.add_paragraph()
+            comp_para.add_run(company).bold = True
+            comp_para.add_run(f"\t{static_info['location']}")
+            
+            # Role and dates
+            role_para = doc.add_paragraph()
+            role_para.add_run(resume_data['experience'][company]['role']).bold = True
+            role_para.add_run(f"\t{static_info['dates']}").bold = True
+            
+            # Bullet points
+            for bullet in resume_data['experience'][company]['bullets']:
+                doc.add_paragraph(bullet, style='List Bullet')
+    
+    # Add skills section
+    _add_section_header(doc, "SKILLS")
+    tech_para = doc.add_paragraph()
+    tech_para.add_run("Technical Skills: ").bold = True
+    tech_para.add_run(resume_data['skills']['technical'])
+    
+    soft_para = doc.add_paragraph()
+    soft_para.paragraph_format.space_before = Pt(4)
+    soft_para.add_run("Soft Skills: ").bold = True
+    soft_para.add_run(resume_data['skills']['soft'])
+    
+    # Convert to bytes and return
+    bio = BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
 
-    if len(doc.paragraphs) > 0 and not doc.paragraphs[-1].text.strip():
-        doc.paragraphs[-1]._element.getparent().remove(doc.paragraphs[-1]._element)
+def create_cover_letter_docx(text_content):
+    """
+    Generate simple DOCX file from cover letter text.
     
-    static_exp = MASTER_RESUME_DATA['RELEVANT_EXPERIENCE_STATIC']
-    for i, (company, static_info) in enumerate(static_exp.items()):
-        p_comp = doc.add_paragraph()
-        p_comp.add_run(company).bold = True
-        p_comp.add_run(f"\t{static_info['location']}")
+    Args:
+        text_content: Plain text cover letter content
         
-        p_role = doc.add_paragraph()
-        p_role.add_run(tailored_data['experience'][company]['role']).bold = True
-        
-        # Make dates bold
-        dates_run = p_role.add_run(f"\t{static_info['dates']}")
-        dates_run.bold = True
-        
-        for bullet in tailored_data['experience'][company]['bullets']:
-            doc.add_paragraph(bullet, style='List Bullet')
-        
-        # Add space between experience entries except after last one
-        if i < len(static_exp) - 1:
-            p = doc.add_paragraph(' ', style='Normal')
-            p.paragraph_format.space_after = Pt(2)
+    Returns:
+        bytes: DOCX file in memory
+    """
+    doc = Document()
     
-    # --- Award ---
-    p = doc.add_paragraph(' ', style='Normal')
-    p.paragraph_format.space_after = Pt(8)
-    p_award = doc.add_paragraph()
-    run_award_label = p_award.add_run("AWARD: ")
-    run_award_label.bold = True
-    run_award_label.underline = True
-    p_award.add_run(MASTER_RESUME_DATA['AWARD'])
+    # Configure document styles
+    style = doc.styles['Normal']
+    style.font.name = 'Times New Roman'
+    style.font.size = Pt(11)
+    style.paragraph_format.line_spacing = 1.15
+    
+    # Set generous margins
+    section = doc.sections[0]
+    section.left_margin = Inches(1.0)
+    section.right_margin = Inches(1.0)
+    section.top_margin = Inches(1.0)
+    section.bottom_margin = Inches(1.0)
+    
+    # Add content preserving paragraphs
+    for para in text_content.split('\n'):
+        doc.add_paragraph(para)
+    
+    bio = BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
 
+def create_cheatsheet_docx(markdown_text):
+    """
+    Convert markdown-formatted text to formatted DOCX.
     
-    # --- Skills ---
-    _add_section_header(doc, "SKILLS:")
+    Args:
+        markdown_text: Cheatsheet content with markdown formatting
+        
+    Returns:
+        bytes: DOCX file in memory
+    """
+    doc = Document()
     
-    p_tech = doc.add_paragraph()
-    p_tech.add_run("Technical Skills: ").bold = True
-    p_tech.add_run(tailored_data['skills']['technical'])
+    # Configure base style
+    style = doc.styles['Normal']
+    style.font.name = 'Calibri'
+    style.font.size = Pt(11)
     
-    p_soft = doc.add_paragraph()
-    p_soft.paragraph_format.space_before = Pt(4)
-    p_soft.add_run("Soft Skills: ").bold = True
-    p_soft.add_run(tailored_data['skills']['soft'])
+    # Parse markdown content
+    for line in markdown_text.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Handle headings
+        if line.startswith('### '):
+            doc.add_heading(line[4:].strip(), level=3)
+        elif line.startswith('## '):
+            doc.add_heading(line[3:].strip(), level=2)
+        elif line.startswith('# '):
+            doc.add_heading(line[2:].strip(), level=1)
+        # Handle bullet points
+        elif line.startswith(('• ', '* ', '- ')):
+            doc.add_paragraph(line[2:].strip(), style='List Bullet')
+        else:
+            doc.add_paragraph(line)
     
-    # --- Organizations ---
-    _add_section_header(doc, "ORGANIZATIONS")
-    
-    org_data = MASTER_RESUME_DATA['ORGANIZATIONS']
-    p_org = doc.add_paragraph()
-    p_org.add_run(f"{org_data['role']}\t")
-    
-    # Make dates bold
-    dates_run = p_org.add_run(org_data['dates'])
-    dates_run.bold = True
-
-    # Final cleanup
-    for p in reversed(doc.paragraphs):
-        if (
-            not p.text.strip()
-            and not len(p.runs)
-            and p._p.pPr is None
-            and (
-                not hasattr(p.paragraph_format, 'space_after')
-                or p.paragraph_format.space_after == Pt(0)
-            )
-        ):
-            p._element.getparent().remove(p._element)
-
     bio = BytesIO()
     doc.save(bio)
     bio.seek(0)
